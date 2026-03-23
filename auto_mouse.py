@@ -1,172 +1,107 @@
-import customtkinter as ctk
 import pyautogui
+import customtkinter as ctk
 from pynput import keyboard, mouse
 import threading
 import time
-import random
-import os
 
+# 기본 설정
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green") # 조금 더 세련된 초록색
+ctk.set_default_color_theme("blue")
 
-class SlimGodClicker(ctk.CTk):
+class AutoClicker(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Click Master Mini")
-        self.geometry("360x520") # 한 손에 들어오는 사이즈
-        self.attributes('-topmost', True)
+
+        self.title("God Mode v1.2")
+        self.geometry("260x220")  # 더 작고 콤팩트하게 수정
+        self.attributes("-topmost", True)  # 항상 위
         
-        self.running = False
-        self.target_points = []
-        self.target_image = None
+        self.target_x = None
+        self.target_y = None
+        self.is_running = False
 
-        # --- 메인 라벨 ---
-        self.status_label = ctk.CTkLabel(self, text="준비 완료", font=("Arial", 16, "bold"), text_color="#2ecc71")
-        self.status_label.pack(pady=10)
+        # --- UI 레이아웃 ---
+        self.label_status = ctk.CTkLabel(self, text="좌표를 설정해주세요", text_color="yellow")
+        self.label_status.pack(pady=(15, 5))
 
-        # --- 탭 구성 (작게) ---
-        self.tabview = ctk.CTkTabview(self, width=320, height=220)
-        self.tabview.pack(pady=5)
-        self.tabview.add("📍 좌표")
-        self.tabview.add("🖼️ 이미지")
-        self.tabview.add("📜 로그")
+        self.label_coord = ctk.CTkLabel(self, text="X: - , Y: -", font=("Arial", 12))
+        self.label_coord.pack(pady=5)
 
-        # [탭 1] 다중 좌표
-        self.pos_list = ctk.CTkTextbox(self.tabview.tab("📍 좌표"), width=300, height=80, font=("Arial", 11))
-        self.pos_list.pack(pady=5)
-        self.update_list()
-        
-        btn_f = ctk.CTkFrame(self.tabview.tab("📍 좌표"), fg_color="transparent")
-        btn_f.pack()
-        ctk.CTkButton(btn_f, text="+ 추가", command=self.add_pos, width=80).pack(side="left", padx=5)
-        ctk.CTkButton(btn_f, text="초기화", fg_color="#c0392b", command=self.clear_pos, width=80).pack(side="left", padx=5)
+        self.btn_action = ctk.CTkButton(self, text="좌표 설정 (F8)", command=self.start_pos_tracking)
+        self.btn_action.pack(pady=10)
 
-        # [탭 2] 이미지 인식
-        self.img_info = ctk.CTkLabel(self.tabview.tab("🖼️ 이미지"), text="이미지 미등록", text_color="gray")
-        self.img_info.pack(pady=20)
-        ctk.CTkButton(self.tabview.tab("🖼️ 이미지"), text="파일 불러오기", command=self.load_img).pack()
+        # 긴급 정지 안내 (작은 글씨)
+        self.label_help = ctk.CTkLabel(self, text="※ 중지: ESC 키 또는\n마우스를 화면 구석으로 던지세요!", 
+                                       font=("Arial", 10), text_color="gray")
+        self.label_help.pack(pady=5)
 
-        # [탭 3] 로그
-        self.log_box = ctk.CTkTextbox(self.tabview.tab("📜 로그"), width=300, height=140, font=("Arial", 10))
-        self.log_box.pack()
+        # 단축키 리스너
+        self.listener = keyboard.GlobalHotKeys({'<f8>': self.start_pos_tracking})
+        self.listener.start()
 
-        # --- 설정 섹션 ---
-        set_f = ctk.CTkFrame(self, fg_color="transparent")
-        set_f.pack(pady=10)
-        
-        ctk.CTkLabel(set_f, text="간격(초):").pack(side="left", padx=5)
-        self.int_entry = ctk.CTkEntry(set_f, width=50)
-        self.int_entry.insert(0, "0.1")
-        self.int_entry.pack(side="left", padx=5)
+    def update_status(self, msg, color="white"):
+        self.label_status.configure(text=msg, text_color=color)
 
-        self.anti_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(self, text="안티-밴(랜덤 모드) 활성화", variable=self.anti_var, font=("Arial", 11)).pack()
+    # 1. 좌표 설정 모드
+    def start_pos_tracking(self):
+        if self.is_running: return
+        self.update_status("클릭할 곳을 클릭하세요!", "orange")
+        self.mouse_listener = mouse.Listener(on_click=self.on_click)
+        self.mouse_listener.start()
 
-        # 투명도 (슬림하게)
-        self.t_slider = ctk.CTkSlider(self, from_=0.3, to=1.0, height=15, command=lambda v: self.attributes('-alpha', v))
-        self.t_slider.set(1.0)
-        self.t_slider.pack(pady=(15,0), padx=50)
+    def on_click(self, x, y, button, pressed):
+        if pressed:
+            self.target_x, self.target_y = x, y
+            self.label_coord.configure(text=f"X: {int(x)}, Y: {int(y)}")
+            self.update_status("설정 완료! (F9: 시작)", "green")
+            
+            # F9 시작 단축키 활성화
+            try: self.start_listener.stop()
+            except: pass
+            self.start_listener = keyboard.GlobalHotKeys({'<f9>': self.start_clicking})
+            self.start_listener.start()
+            
+            return False # 리스너 종료
 
-        # 시작 버튼 (강조)
-        self.start_btn = ctk.CTkButton(self, text="매크로 시작 (ESC 종료)", font=("Arial", 15, "bold"), 
-                                      fg_color="#27ae60", hover_color="#2ecc71", height=45, command=self.start)
-        self.start_btn.pack(pady=20, fill="x", padx=30)
+    # 2. 매크로 시작
+    def start_clicking(self):
+        if not self.is_running:
+            self.is_running = True
+            self.update_status("매크로 가동 중...", "red")
+            threading.Thread(target=self.run_macro, daemon=True).start()
 
-        keyboard.Listener(on_press=self.on_key).start()
-
-    def write_log(self, m):
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {m}\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
-
-    def add_pos(self):
-        self.status_label.configure(text="화면 클릭 대기 중...", text_color="orange")
-        def on_c(x, y, b, p):
-            if p:
-                self.target_points.append((x, y))
-                self.update_list()
-                self.status_label.configure(text="좌표 추가 완료", text_color="#2ecc71")
+    def run_macro(self):
+        # ESC 감지 리스너
+        stop_event = threading.Event()
+        def on_press(key):
+            if key == keyboard.Key.esc:
+                stop_event.set()
                 return False
-        mouse.Listener(on_click=on_c).start()
 
-    def clear_pos(self):
-        self.target_points = []
-        self.update_list()
-        self.write_log("좌표 초기화.")
+        esc_listener = keyboard.Listener(on_press=on_press)
+        esc_listener.start()
 
-    def update_list(self):
-        self.pos_list.configure(state="normal")
-        self.pos_list.delete("0.0", "end")
-        if not self.target_points: self.pos_list.insert("0.0", "비어있음 (현재 위치 사용)")
-        else:
-            for i, p in enumerate(self.target_points): self.pos_list.insert("end", f"{i+1}. {int(p[0])}, {int(p[1])}\n")
-        self.pos_list.configure(state="disabled")
-
-    def load_img(self):
-        f = ctk.filedialog.askopenfilename()
-        if f:
-            self.target_image = f
-            self.img_info.configure(text=f"등록: {os.path.basename(f)}", text_color="cyan")
-
-    def on_key(self, key):
-        if key == keyboard.Key.esc: self.stop()
-
-    def stop(self):
-        if self.running:
-            self.running = False
-            self.status_label.configure(text="중단됨 (ESC)", text_color="red")
-            self.start_btn.configure(state="normal", text="매크로 다시 시작")
-
-    def start(self):
-        if not self.running:
-            self.running = True
-            threading.Thread(target=self.logic, daemon=True).start()
-
-    def logic(self):
         try:
-            for i in range(3, 0, -1):
-                self.status_label.configure(text=f"{i}초 후 시작...")
-                time.sleep(1)
-            
-            if not self.running: return
-            self.status_label.configure(text="● 작동 중", text_color="#2ecc71")
-            self.start_btn.configure(state="disabled")
-            
-            base = float(self.int_entry.get())
-            mode = self.tabview.get()
+            while not stop_event.is_set():
+                pyautogui.click(self.target_x, self.target_y)
+                time.sleep(0.01) # 초고속 클릭
+        except pyautogui.FailSafeException:
+            pass # 구석으로 던졌을 때 예외 처리
+        finally:
+            self.is_running = False
+            self.after(0, self.stop_ui_reset) # 메인 스레드에서 UI 업데이트
 
-            while self.running:
-                # 세이프존 (0,0)
-                mx, my = pyautogui.position()
-                if mx < 5 and my < 5: self.stop(); break
-
-                if mode == "📍 좌표":
-                    pts = self.target_points if self.target_points else [pyautogui.position()]
-                    for tx, ty in pts:
-                        if not self.running: break
-                        self.click(tx, ty)
-                        self.s_sleep(base)
-                elif mode == "🖼️ 이미지":
-                    try:
-                        l = pyautogui.locateOnScreen(self.target_image, confidence=0.8)
-                        if l: 
-                            c = pyautogui.center(l)
-                            self.click(c.x, c.y)
-                    except: pass
-                    self.s_sleep(base)
-        except: self.stop()
-
-    def click(self, x, y):
-        if self.anti_var.get():
-            x += random.randint(-2, 2)
-            y += random.randint(-2, 2)
-        pyautogui.click(x, y)
-
-    def s_sleep(self, b):
-        if self.anti_var.get(): time.sleep(b + random.uniform(-b*0.1, b*0.1))
-        else: time.sleep(b)
+    # 3. 중단 후 3초 뒤 초기화 (피드백 반영)
+    def stop_ui_reset(self):
+        self.update_status("중단됨 (3초 뒤 초기화)", "orange")
+        
+        def reset():
+            time.sleep(3)
+            if not self.is_running: # 다시 시작 안 했을 경우만 초기화
+                self.update_status("좌표를 설정해주세요", "yellow")
+        
+        threading.Thread(target=reset, daemon=True).start()
 
 if __name__ == "__main__":
-    app = SlimGodClicker()
+    app = AutoClicker()
     app.mainloop()
